@@ -36,8 +36,11 @@ class ChangeBookStatus
         return false
       end
 
-      book.borrowings.create!(reader:, borrowed_on: Date.current, due_on:)
-      book.association(:open_borrowing).reset
+      book.borrowings.create!(reader:, borrowed_on: Date.current, due_on:).tap do |loan|
+        book.association(:open_borrowing).reset
+        schedule_reminders(loan)
+      end
+
       true
     rescue ActiveRecord::RecordInvalid => error
       book.errors.merge!(error.record.errors)
@@ -61,5 +64,14 @@ class ChangeBookStatus
 
     def due_on
       Date.current + Borrowing::LOAN_PERIOD_IN_DAYS
+    end
+
+    def schedule_reminders(loan)
+      enqueue_reminder(loan, loan.due_on - ReturnReminderJob::DAYS_BEFORE, ReturnReminderJob::UPCOMING)
+      enqueue_reminder(loan, loan.due_on, ReturnReminderJob::DUE)
+    end
+
+    def enqueue_reminder(loan, on, kind)
+      ReturnReminderJob.set(wait_until: on.in_time_zone).perform_later(loan.id, loan.due_on, kind)
     end
 end
