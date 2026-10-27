@@ -26,6 +26,19 @@ RSpec.describe ChangeBookStatus do
     expect(book.status).to eq("borrowed")
   end
 
+  it "schedules a reminder three days before the due date and on the due date" do
+    book = create_book
+    reader = create_reader
+
+    travel_to Time.zone.local(2026, 10, 27, 9) do
+      ChangeBookStatus.call(book, status: "borrowed", card_number: reader.card_number)
+      loan = book.open_borrowing
+
+      expect(ReturnReminderJob).to have_been_enqueued.with(loan.id, loan.due_on, ReturnReminderJob::UPCOMING).at(Time.zone.local(2026, 11, 23))
+      expect(ReturnReminderJob).to have_been_enqueued.with(loan.id, loan.due_on, ReturnReminderJob::DUE).at(Time.zone.local(2026, 11, 26))
+    end
+  end
+
   it "rejects a second open loan for the same book" do
     book = create_book
     ChangeBookStatus.call(book, status: "borrowed", card_number: create_reader.card_number)
