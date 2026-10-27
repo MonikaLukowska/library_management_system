@@ -1,4 +1,6 @@
 class Reader < ApplicationRecord
+  has_many :borrowings, dependent: :restrict_with_error
+
   before_validation :normalize_email
 
   validates :card_number, presence: true, uniqueness: true, format: { with: /\A\d{6}\z/ }
