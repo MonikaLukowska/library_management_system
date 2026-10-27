@@ -42,4 +42,7 @@ group :development, :test do
 
   # Testing framework
   gem "rspec-rails", "~> 8.0"
+
+  # Builds readers and books for specs and development seeds.
+  gem "factory_bot_rails"
 end

@@ -3,42 +3,42 @@ require "rails_helper"
 RSpec.describe "Books", type: :request do
   include ActiveSupport::Testing::TimeHelpers
 
-  def create_book(**overrides)
-    Book.create!({ serial_number: "000123", title: "Dune", author: "Frank Herbert" }.merge(overrides))
-  end
-
-  def create_reader(**overrides)
-    Reader.create!({ card_number: "000123", full_name: "Ada Lovelace", email: "ada@example.com" }.merge(overrides))
-  end
-
-  def available_book(serial_number:, title:, author:)
+  def book_json(book, status: "available")
     {
-      "serial_number" => serial_number,
-      "title" => title,
-      "author" => author,
-      "status" => "available"
+      "serial_number" => book.serial_number,
+      "title" => book.title,
+      "author" => book.author,
+      "status" => status
+    }
+  end
+
+  def reader_json(reader)
+    {
+      "card_number" => reader.card_number,
+      "full_name" => reader.full_name,
+      "email" => reader.email
     }
   end
 
   describe "GET /books" do
     it "returns books ordered by serial number" do
-      create_book(serial_number: "000200", title: "Dune", author: "Frank Herbert")
-      create_book(serial_number: "000100", title: "Neuromancer", author: "William Gibson")
+      later = create(:book, serial_number: "000200", title: "Dune", author: "Frank Herbert")
+      earlier = create(:book, serial_number: "000100", title: "Neuromancer", author: "William Gibson")
 
       get "/books"
 
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body).to eq([
-        available_book(serial_number: "000100", title: "Neuromancer", author: "William Gibson"),
-        available_book(serial_number: "000200", title: "Dune", author: "Frank Herbert")
+        book_json(earlier),
+        book_json(later)
       ])
     end
 
     it "shows whether a book is borrowed" do
-      create_book(serial_number: "000100", title: "Neuromancer", author: "William Gibson")
-      borrowed = create_book(serial_number: "000200", title: "Dune", author: "Frank Herbert")
+      create(:book, serial_number: "000100")
+      borrowed = create(:book, serial_number: "000200")
 
-      ChangeBookStatus.call(borrowed, status: "borrowed", card_number: create_reader.card_number)
+      ChangeBookStatus.call(borrowed, status: "borrowed", card_number: create(:reader).card_number)
       get "/books"
 
       expect(response).to have_http_status(:ok)
@@ -46,11 +46,8 @@ RSpec.describe "Books", type: :request do
     end
 
     it "loads the list in a fixed number of queries" do
-      3.times do |index|
-        create_book(serial_number: format("%06d", index + 1), title: "Title #{index}", author: "Author #{index}")
-      end
-      book = Book.find_by!(serial_number: "000001")
-      ChangeBookStatus.call(book, status: "borrowed", card_number: create_reader.card_number)
+      books = create_list(:book, 3)
+      ChangeBookStatus.call(books.first, status: "borrowed", card_number: create(:reader).card_number)
 
       queries = []
       ActiveSupport::Notifications.subscribed(->(*, payload) {
@@ -67,9 +64,9 @@ RSpec.describe "Books", type: :request do
 
   describe "GET /books/:serial_number" do
     it "returns the book with its borrowing history" do
-      book = create_book
-      first_reader = create_reader
-      second_reader = create_reader(card_number: "000124", full_name: "Grace Hopper", email: "grace@example.com")
+      book = create(:book)
+      first_reader = create(:reader)
+      second_reader = create(:reader)
 
       travel_to Date.new(2026, 10, 1) do
         patch "/books/#{book.serial_number}", params: { status: "borrowed", card_number: first_reader.card_number }, as: :json
@@ -91,27 +88,19 @@ RSpec.describe "Books", type: :request do
       expect(response).to have_http_status(:ok)
       expect(queries.size).to be <= 3
       expect(response.parsed_body).to eq(
-        "serial_number" => "000123",
-        "title" => "Dune",
-        "author" => "Frank Herbert",
+        "serial_number" => book.serial_number,
+        "title" => book.title,
+        "author" => book.author,
         "borrowings" => [
           {
             "borrowed_on" => "2026-10-01",
             "returned_on" => "2026-10-20",
-            "reader" => {
-              "card_number" => "000123",
-              "full_name" => "Ada Lovelace",
-              "email" => "ada@example.com"
-            }
+            "reader" => reader_json(first_reader)
           },
           {
             "borrowed_on" => "2026-10-27",
             "returned_on" => nil,
-            "reader" => {
-              "card_number" => "000124",
-              "full_name" => "Grace Hopper",
-              "email" => "grace@example.com"
-            }
+            "reader" => reader_json(second_reader)
           }
         ]
       )
@@ -129,7 +118,12 @@ RSpec.describe "Books", type: :request do
       post "/books", params: { serial_number: "000123", title: "Dune", author: "Frank Herbert" }, as: :json
 
       expect(response).to have_http_status(:created)
-      expect(response.parsed_body).to eq(available_book(serial_number: "000123", title: "Dune", author: "Frank Herbert"))
+      expect(response.parsed_body).to eq(
+        "serial_number" => "000123",
+        "title" => "Dune",
+        "author" => "Frank Herbert",
+        "status" => "available"
+      )
       expect(Book.find_by(serial_number: "000123")).to be_present
     end
 
@@ -141,9 +135,9 @@ RSpec.describe "Books", type: :request do
     end
 
     it "rejects a duplicate serial number" do
-      create_book
+      book = create(:book)
 
-      post "/books", params: { serial_number: "000123", title: "Other", author: "Someone" }, as: :json
+      post "/books", params: { serial_number: book.serial_number, title: "Other", author: "Someone" }, as: :json
 
       expect(response).to have_http_status(:unprocessable_content)
       expect(Book.count).to eq(1)
@@ -152,8 +146,8 @@ RSpec.describe "Books", type: :request do
 
   describe "PATCH /books/:serial_number" do
     it "borrows a book for a reader" do
-      book = create_book
-      reader = create_reader
+      book = create(:book)
+      reader = create(:reader)
 
       travel_to Date.new(2026, 10, 27) do
         patch "/books/#{book.serial_number}", params: { status: "borrowed", card_number: reader.card_number }, as: :json
@@ -165,8 +159,8 @@ RSpec.describe "Books", type: :request do
     end
 
     it "returns a borrowed book" do
-      book = create_book
-      ChangeBookStatus.call(book, status: "borrowed", card_number: create_reader.card_number)
+      book = create(:book)
+      ChangeBookStatus.call(book, status: "borrowed", card_number: create(:reader).card_number)
 
       patch "/books/#{book.serial_number}", params: { status: "available" }, as: :json
 
@@ -176,7 +170,7 @@ RSpec.describe "Books", type: :request do
     end
 
     it "rejects borrowing when the reader does not exist" do
-      book = create_book
+      book = create(:book)
 
       patch "/books/#{book.serial_number}", params: { status: "borrowed", card_number: "000999" }, as: :json
 
@@ -186,11 +180,10 @@ RSpec.describe "Books", type: :request do
     end
 
     it "rejects borrowing a book that is already borrowed" do
-      book = create_book
-      ChangeBookStatus.call(book, status: "borrowed", card_number: create_reader.card_number)
-      other = create_reader(card_number: "000124", full_name: "Grace Hopper", email: "grace@example.com")
+      book = create(:book)
+      ChangeBookStatus.call(book, status: "borrowed", card_number: create(:reader).card_number)
 
-      patch "/books/#{book.serial_number}", params: { status: "borrowed", card_number: other.card_number }, as: :json
+      patch "/books/#{book.serial_number}", params: { status: "borrowed", card_number: create(:reader).card_number }, as: :json
 
       expect(response).to have_http_status(:unprocessable_content)
       expect(response.parsed_body["errors"]["base"]).to eq([ "Book is already borrowed" ])
@@ -198,7 +191,7 @@ RSpec.describe "Books", type: :request do
     end
 
     it "rejects returning a book that is available" do
-      book = create_book
+      book = create(:book)
 
       patch "/books/#{book.serial_number}", params: { status: "available" }, as: :json
 
@@ -207,7 +200,7 @@ RSpec.describe "Books", type: :request do
     end
 
     it "rejects an unknown status" do
-      book = create_book
+      book = create(:book)
 
       patch "/books/#{book.serial_number}", params: { status: "lost" }, as: :json
 
@@ -218,17 +211,17 @@ RSpec.describe "Books", type: :request do
 
   describe "DELETE /books/:serial_number" do
     it "deletes a book" do
-      create_book
+      book = create(:book)
 
-      delete "/books/000123"
+      delete "/books/#{book.serial_number}"
 
       expect(response).to have_http_status(:no_content)
-      expect(Book.where(serial_number: "000123")).to be_empty
+      expect(Book.where(serial_number: book.serial_number)).to be_empty
     end
 
     it "rejects deleting a book that has borrowing history" do
-      book = create_book
-      ChangeBookStatus.call(book, status: "borrowed", card_number: create_reader.card_number)
+      book = create(:book)
+      ChangeBookStatus.call(book, status: "borrowed", card_number: create(:reader).card_number)
 
       delete "/books/#{book.serial_number}"
 

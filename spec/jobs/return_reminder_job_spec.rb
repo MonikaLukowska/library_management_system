@@ -2,9 +2,15 @@ require "rails_helper"
 
 RSpec.describe ReturnReminderJob, type: :job do
   def create_loan
-    book = Book.create!(serial_number: "000123", title: "Dune", author: "Frank Herbert")
-    reader = Reader.create!(card_number: "000123", full_name: "Ada Lovelace", email: "ada@example.com")
-    Borrowing.create!(book: book, reader: reader, borrowed_on: Date.new(2026, 10, 27), due_on: Date.new(2026, 11, 26))
+    create(:borrowing, borrowed_on: Date.new(2026, 10, 27), due_on: Date.new(2026, 11, 26))
+  end
+
+  def reminder_for(loan, kind)
+    due_today = kind == ReturnReminderJob::DUE
+    when_due = due_today ? "due today, 2026-11-26" : "due in 3 days, on 2026-11-26"
+    subject = "#{due_today ? "Book due today" : "Book due in 3 days"}: #{loan.book.title}"
+
+    "Email to=#{loan.reader.email} subject=#{subject} body=Dear #{loan.reader.full_name}, \"#{loan.book.title}\" (#{loan.book.serial_number}) is #{when_due}."
   end
 
   def logged_messages
@@ -24,9 +30,7 @@ RSpec.describe ReturnReminderJob, type: :job do
       described_class.perform_now(loan.id, loan.due_on, ReturnReminderJob::DUE)
     end
 
-    expect(messages).to include(
-      "Email to=ada@example.com subject=Book due today: Dune body=Dear Ada Lovelace, \"Dune\" (000123) is due today, 2026-11-26."
-    )
+    expect(messages).to include(reminder_for(loan, ReturnReminderJob::DUE))
   end
 
   it "logs the upcoming reminder three days before the due date" do
@@ -36,9 +40,7 @@ RSpec.describe ReturnReminderJob, type: :job do
       described_class.perform_now(loan.id, loan.due_on, ReturnReminderJob::UPCOMING)
     end
 
-    expect(messages).to include(
-      "Email to=ada@example.com subject=Book due in 3 days: Dune body=Dear Ada Lovelace, \"Dune\" (000123) is due in 3 days, on 2026-11-26."
-    )
+    expect(messages).to include(reminder_for(loan, ReturnReminderJob::UPCOMING))
   end
 
   it "does not log when the book has been returned" do
