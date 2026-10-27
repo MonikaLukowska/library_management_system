@@ -1,28 +1,31 @@
 class BookSerializer
-  attr_reader :book, :history
+  attr_reader :book
 
-  def initialize(book, history: false)
+  def initialize(book)
     @book = book
-    @history = history
   end
 
   def as_json(*)
-    loan = book.current_borrowing
+    base.merge(status: book.status)
+  end
 
-    data = {
-      serial_number: book.serial_number,
-      title: book.title,
-      author: book.author,
-      status: book.status,
-      borrowed_on: loan&.borrowed_on,
-      reader: loan && ReaderSerializer.new(loan.reader).as_json
-    }
-
-    data[:borrowings] = book.borrowings.map { |borrowing| BorrowingSerializer.new(borrowing).as_json } if history
-    data
+  def extended_as_json
+    base.merge(
+      borrowings: book.borrowings.map { |borrowing| BorrowingSerializer.new(borrowing).as_json }
+    )
   end
 
   def self.many(books)
     books.map { |book| new(book).as_json }
   end
+
+  private
+
+    def base
+      {
+        serial_number: book.serial_number,
+        title: book.title,
+        author: book.author
+      }
+    end
 end

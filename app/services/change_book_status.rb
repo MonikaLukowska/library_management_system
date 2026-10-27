@@ -1,8 +1,6 @@
 class ChangeBookStatus
   attr_reader :book, :status, :card_number
 
-  LOAN_PERIOD_IN_DAYS = 30
-
   def self.call(book, status:, card_number:)
     new(book, status:, card_number:).call
   end
@@ -27,6 +25,7 @@ class ChangeBookStatus
 
     def borrow
       reader = Reader.find_by(card_number: card_number)
+
       if reader.nil?
         book.errors.add(:card_number, "does not match a reader")
         return false
@@ -37,7 +36,7 @@ class ChangeBookStatus
         return false
       end
 
-      book.borrowings.create!(reader: reader, borrowed_on: Date.current, due_on: due_on)
+      book.borrowings.create!(reader:, borrowed_on: Date.current, due_on:)
       book.association(:open_borrowing).reset
       true
     rescue ActiveRecord::RecordInvalid => error
@@ -61,6 +60,6 @@ class ChangeBookStatus
     end
 
     def due_on
-      Date.current + LOAN_PERIOD_IN_DAYS
+      Date.current + Borrowing::LOAN_PERIOD_IN_DAYS
     end
 end

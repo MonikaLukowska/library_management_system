@@ -1,12 +1,12 @@
 class BooksController < ApplicationController
   def index
-    books = Book.includes(open_borrowing: :reader).order(:serial_number)
+    books = Book.includes(:open_borrowing).order(:serial_number)
     render json: BookSerializer.many(books)
   end
 
   def show
     book = Book.includes(borrowings: :reader).find_by!(serial_number: params[:serial_number])
-    render json: BookSerializer.new(book, history: true).as_json
+    render json: BookSerializer.new(book).extended_as_json
   end
 
   def create

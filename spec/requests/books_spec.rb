@@ -16,9 +16,7 @@ RSpec.describe "Books", type: :request do
       "serial_number" => serial_number,
       "title" => title,
       "author" => author,
-      "status" => "available",
-      "borrowed_on" => nil,
-      "reader" => nil
+      "status" => "available"
     }
   end
 
@@ -36,29 +34,15 @@ RSpec.describe "Books", type: :request do
       ])
     end
 
-    it "shows who has a borrowed book" do
+    it "shows whether a book is borrowed" do
       create_book(serial_number: "000100", title: "Neuromancer", author: "William Gibson")
       borrowed = create_book(serial_number: "000200", title: "Dune", author: "Frank Herbert")
-      reader = create_reader
 
-      travel_to Date.new(2026, 10, 27) do
-        ChangeBookStatus.call(borrowed, status: "borrowed", card_number: reader.card_number)
-        get "/books"
-      end
+      ChangeBookStatus.call(borrowed, status: "borrowed", card_number: create_reader.card_number)
+      get "/books"
 
       expect(response).to have_http_status(:ok)
-      expect(response.parsed_body.last).to eq(
-        "serial_number" => "000200",
-        "title" => "Dune",
-        "author" => "Frank Herbert",
-        "status" => "borrowed",
-        "borrowed_on" => "2026-10-27",
-        "reader" => {
-          "card_number" => "000123",
-          "full_name" => "Ada Lovelace",
-          "email" => "ada@example.com"
-        }
-      )
+      expect(response.parsed_body.map { |book| book["status"] }).to eq([ "available", "borrowed" ])
     end
 
     it "loads the list in a fixed number of queries" do
@@ -110,17 +94,9 @@ RSpec.describe "Books", type: :request do
         "serial_number" => "000123",
         "title" => "Dune",
         "author" => "Frank Herbert",
-        "status" => "borrowed",
-        "borrowed_on" => "2026-10-27",
-        "reader" => {
-          "card_number" => "000124",
-          "full_name" => "Grace Hopper",
-          "email" => "grace@example.com"
-        },
         "borrowings" => [
           {
             "borrowed_on" => "2026-10-01",
-            "due_on" => "2026-10-31",
             "returned_on" => "2026-10-20",
             "reader" => {
               "card_number" => "000123",
@@ -130,7 +106,6 @@ RSpec.describe "Books", type: :request do
           },
           {
             "borrowed_on" => "2026-10-27",
-            "due_on" => "2026-11-26",
             "returned_on" => nil,
             "reader" => {
               "card_number" => "000124",
@@ -197,7 +172,6 @@ RSpec.describe "Books", type: :request do
 
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body["status"]).to eq("available")
-      expect(response.parsed_body["reader"]).to be_nil
       expect(book.borrowings.sole.returned_on).to eq(Date.current)
     end
 
