@@ -1,14 +1,18 @@
 class BookSerializer
+  attr_reader :book
+
   def initialize(book)
     @book = book
   end
 
   def as_json(*)
-    {
-      serial_number: book.serial_number,
-      title: book.title,
-      author: book.author
-    }
+    base.merge(status: book.status)
+  end
+
+  def extended_as_json
+    base.merge(
+      borrowings: book.borrowings.map { |borrowing| BorrowingSerializer.new(borrowing).as_json }
+    )
   end
 
   def self.many(books)
@@ -16,5 +20,12 @@ class BookSerializer
   end
 
   private
-    attr_reader :book
+
+    def base
+      {
+        serial_number: book.serial_number,
+        title: book.title,
+        author: book.author
+      }
+    end
 end
