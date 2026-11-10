@@ -41,7 +41,7 @@ group :development, :test do
   gem "rubocop-rails-omakase", require: false
 
   # Testing framework
-  gem "rspec-rails", "~> 8.0"
+  gem "rspec-rails", "~> 8.1"
 
   # Builds readers and books for specs and development seeds.
   gem "factory_bot_rails"
